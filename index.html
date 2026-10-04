@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Star Dodger</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0a1a; display: flex; align-items: center; justify-content: center; }
+  #wrap { position: relative; }
+  canvas {
+    display: block; height: 90vh; max-height: 640px; aspect-ratio: 3 / 4;
+    image-rendering: pixelated; border: 4px solid #4a4aff; border-radius: 8px;
+    box-shadow: 0 0 30px #4a4aff88; background: #000; touch-action: none; cursor: none;
+  }
+  #wrap::after { /* CRT scanlines */
+    content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: 8px;
+    background: repeating-linear-gradient(#0000 0 2px, #0003 2px 4px);
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="240" height="320"></canvas></div>
+<script>
+const c = document.getElementById("c"), g = c.getContext("2d"), W = c.width, H = c.height;
+let state = "title", ship, items, stars, score, lives, t = 0, shake = 0, hi = 0, keys = {}, ac;
+try { hi = +localStorage.getItem("starDodgerHi") || 0; } catch (e) {}
+stars = Array.from({ length: 40 }, () => ({ x: Math.random() * W, y: Math.random() * H, s: 0.3 + Math.random() }));
+
+function beep(f, d) { // tiny square-wave sound effects
+  try {
+    ac = ac || new AudioContext();
+    const o = ac.createOscillator(), v = ac.createGain();
+    o.type = "square"; o.frequency.value = f; v.gain.value = 0.05;
+    o.connect(v); v.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+  } catch (e) {}
+}
+function start() { ship = { x: W / 2, y: H - 36 }; items = []; score = 0; lives = 3; t = 0; state = "play"; beep(520, 0.1); }
+
+addEventListener("keydown", e => {
+  keys[e.key] = 1;
+  if ([" ", "ArrowLeft", "ArrowRight"].includes(e.key)) e.preventDefault();
+  if ((e.key === " " || e.key === "Enter") && state !== "play") start();
+});
+addEventListener("keyup", e => delete keys[e.key]);
+c.addEventListener("pointermove", e => { if (ship) ship.x = (e.clientX - c.getBoundingClientRect().left) / c.clientWidth * W; });
+c.addEventListener("pointerdown", e => { if (state !== "play") start(); else ship.x = (e.clientX - c.getBoundingClientRect().left) / c.clientWidth * W; });
+
+function update() {
+  t++;
+  stars.forEach(s => { s.y += s.s * (state === "play" ? 2 : 0.5); if (s.y > H) { s.y = 0; s.x = Math.random() * W; } });
+  if (state !== "play") return;
+  if (keys.ArrowLeft || keys.a) ship.x -= 3.5;
+  if (keys.ArrowRight || keys.d) ship.x += 3.5;
+  ship.x = Math.max(12, Math.min(W - 12, ship.x));
+  if (Math.random() < 0.04 + t / 25000)
+    items.push({ x: 10 + Math.random() * (W - 20), y: -10, v: 1.2 + Math.random() + t / 3000, star: Math.random() < 0.35 });
+  items.forEach(i => {
+    i.y += i.v;
+    if (Math.abs(i.x - ship.x) < 14 && Math.abs(i.y - ship.y) < 14) {
+      i.dead = true;
+      if (i.star) { score += 10; beep(880, 0.08); }
+      else { lives--; shake = 10; beep(120, 0.25); if (lives <= 0) gameOver(); }
+    }
+  });
+  items = items.filter(i => !i.dead && i.y < H + 10);
+}
+function gameOver() {
+  state = "over";
+  if (score > hi) { hi = score; try { localStorage.setItem("starDodgerHi", hi); } catch (e) {} }
+}
+function text(s, y, size, color) { g.fillStyle = color; g.font = `bold ${size}px "Courier New", monospace`; g.textAlign = "center"; g.fillText(s, W / 2, y); }
+
+function draw() {
+  g.save();
+  if (shake > 0) { g.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake--; }
+  g.fillStyle = "#05051a"; g.fillRect(0, 0, W, H);
+  stars.forEach(s => { g.fillStyle = s.s > 0.9 ? "#fff" : "#88a"; g.fillRect(s.x, s.y, 2, 2); });
+  items.forEach(i => {
+    if (i.star) { g.fillStyle = "#ff0"; g.fillRect(i.x - 2, i.y - 6, 4, 12); g.fillRect(i.x - 6, i.y - 2, 12, 4); g.fillStyle = "#fff"; g.fillRect(i.x - 1, i.y - 1, 2, 2); }
+    else { g.fillStyle = "#a86"; g.fillRect(i.x - 6, i.y - 8, 12, 16); g.fillRect(i.x - 8, i.y - 5, 16, 10); g.fillStyle = "#753"; g.fillRect(i.x - 3, i.y - 3, 4, 4); }
+  });
+  if (ship && state !== "title") {
+    const { x, y } = ship, f = 4 + ((t >> 2) % 3) * 2;
+    g.fillStyle = "#4af"; g.fillRect(x - 2, y - 12, 4, 6); g.fillRect(x - 6, y - 6, 12, 10); g.fillRect(x - 12, y + 2, 24, 6);
+    g.fillStyle = "#fff"; g.fillRect(x - 2, y - 6, 4, 4);
+    g.fillStyle = "#f80"; g.fillRect(x - 4, y + 8, 3, f); g.fillRect(x + 1, y + 8, 3, f);
+  }
+  g.restore();
+  if (state === "play") { text("SCORE " + score, 16, 12, "#fff"); text("♥".repeat(lives), 32, 12, "#f46"); }
+  if (state === "title") { text("STAR DODGER", 120, 22, "#4af"); text("Catch ★  Dodge rocks", 160, 11, "#ff0"); text("← → or mouse/touch", 185, 10, "#aaa"); if (t % 60 < 40) text("PRESS SPACE / TAP", 230, 12, "#fff"); }
+  if (state === "over") { text("GAME OVER", 120, 22, "#f46"); text("Score " + score + "   Best " + hi, 155, 12, "#fff"); if (t % 60 < 40) text("SPACE / TAP to retry", 210, 12, "#ff0"); }
+}
+(function loop() { update(); draw(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
